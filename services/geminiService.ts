@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { AspectRatioOption } from '../types';
 
 if (!process.env.API_KEY) {
@@ -31,5 +31,86 @@ export const generateImage = async (prompt: string, aspectRatio: AspectRatioOpti
         throw new Error(`API Error: ${error.message}`);
     }
     throw new Error("An unexpected error occurred while generating the image.");
+  }
+};
+
+export const editImage = async (prompt: string, image: { data: string; mimeType: string }): Promise<string> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image-preview',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: image.data,
+              mimeType: image.mimeType,
+            },
+          },
+          { text: prompt },
+        ],
+      },
+      config: {
+        responseModalities: [Modality.IMAGE, Modality.TEXT],
+      },
+    });
+
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return part.inlineData.data;
+      }
+    }
+
+    throw new Error("No edited image was returned by the API.");
+  } catch (error) {
+    console.error("Error calling Gemini API for image editing:", error);
+    if (error instanceof Error) {
+        throw new Error(`API Error: ${error.message}`);
+    }
+    throw new Error("An unexpected error occurred while editing the image.");
+  }
+};
+
+export const getPromptRecommendations = async (currentPrompt: string): Promise<string[]> => {
+  if (!currentPrompt) {
+    return [];
+  }
+  try {
+    const systemInstruction = `You are an expert in crafting prompts for generative AI image models. 
+    Based on the user's input, generate 3 improved and more descriptive prompts. 
+    Focus on adding vivid details, context, and artistic style. 
+    Return the result as a JSON array of strings.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `User prompt: "${currentPrompt}"`,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.STRING,
+            description: 'An improved, creative prompt suggestion.'
+          },
+        },
+      },
+    });
+
+    const jsonText = response.text.trim();
+    const suggestions = JSON.parse(jsonText);
+    
+    if (Array.isArray(suggestions)) {
+      return suggestions;
+    }
+
+    console.warn("API did not return an array for suggestions:", suggestions);
+    return [];
+
+  } catch (error) {
+    console.error("Error calling Gemini API for prompt suggestions:", error);
+    if (error instanceof Error) {
+        throw new Error(`API Error: ${error.message}`);
+    }
+    throw new Error("An unexpected error occurred while generating suggestions.");
   }
 };
